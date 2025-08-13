@@ -17,19 +17,19 @@ shared_scripts {
 server_scripts {
   '@oxmysql/lib/MySQL.lua',
 
-  'server/logger.lua',
-  'server/registry.lua',
-  'server/ratelimit.lua',
-  'server/errors.lua',
-  'server/rpc.lua',
+  'server/core/logger.lua',
+  'server/core/registry.lua',
+  'server/core/ratelimit.lua',
+  'server/core/errors.lua',
+  'server/core/rpc.lua',
 
-  'server/db.lua',
-  'server/migrations.lua',
-  'server/migrations_core.lua',
+  'server/core/db.lua',
+  'server/core/migrations.lua',
+  'server/core/migrations_core.lua',
 
-  'server/validator.lua',      -- neu (Payload-Validator)
-  'server/players_svc.lua',
-  'server/characters_svc.lua',
+  'server/core/validator.lua',      -- neu (Payload-Validator)
+  'server/services/players_svc.lua',
+  'server/services/characters_svc.lua',
 
   'server/main.lua'
 }

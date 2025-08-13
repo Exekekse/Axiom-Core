@@ -1,8 +1,9 @@
 Axiom = Axiom or {}
 local log = Axiom.log or { info=print, warn=print, error=print }
 local RES = GetCurrentResourceName()
-local DbScalar = function(q,p) return exports[RES]:DbScalar(q,p) end
-local DbExec   = function(q,p) return exports[RES]:DbExec(q,p)   end
+local ax  = exports[RES]
+local DbScalar = function(q,p) return ax:DbScalar(q,p) end
+local DbExec   = function(q,p) return ax:DbExec(q,p)   end
 
 local regs = {} -- modul -> { {version, sql}, ... }
 

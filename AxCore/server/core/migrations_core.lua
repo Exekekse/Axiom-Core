@@ -1,5 +1,6 @@
 local RES = GetCurrentResourceName()
-local RegisterMigration = function(...) return exports[RES]:RegisterMigration(...) end
+local ax  = exports[RES]
+local RegisterMigration = function(...) return ax:RegisterMigration(...) end
 
 -- 0001: Spieler (kein JSON-Feld)
 RegisterMigration('axiom-core', '0001_players', [[

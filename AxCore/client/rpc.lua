@@ -3,7 +3,9 @@ Axiom = Axiom or {}
 local EV = (Axiom.ev or {})
 
 local pending = {}  -- id -> {cb, timeout}
-local function newId() return tostring(math.random(10^9, 10^10-1)) end
+local rand = math.random
+local getTime = GetGameTimer
+local function newId() return tostring(rand(10^9, 10^10-1)) end
 
 RegisterNetEvent(EV.RpcRes, function(id, ok, res)
   local p = pending[id]; if not p then return end
@@ -14,7 +16,7 @@ end)
 -- Axiom.rpc('name', payload, function(ok,res) end, timeout_ms)
 function Axiom.rpc(name, payload, cb, timeout)
   local id = newId()
-  pending[id] = { cb = cb, timeout = GetGameTimer() + (timeout or 5000) }
+  pending[id] = { cb = cb, timeout = getTime() + (timeout or 5000) }
   TriggerServerEvent(EV.RpcReq, id, name, payload)
 end
 
@@ -22,7 +24,7 @@ end
 CreateThread(function()
   while true do
     Wait(500)
-    local now = GetGameTimer()
+    local now = getTime()
     for id,p in pairs(pending) do
       if now > (p.timeout or 0) then
         local cb = p.cb; pending[id] = nil
