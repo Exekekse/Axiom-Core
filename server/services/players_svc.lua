@@ -2,6 +2,7 @@ Axiom = Axiom or {}
 local RES = GetCurrentResourceName()
 local ax  = exports[RES]
 local cfg = Axiom.config or {}
+local log = Axiom.log
 
 local PREFIX = {
   license='license:', rockstar='license:',
@@ -35,41 +36,58 @@ AddEventHandler('playerJoining', function()
 end)
 AddEventHandler('playerDropped', function() local src=source; local uid=uidBySrc[src]; uidBySrc[src]=nil; if uid then srcByUid[uid]=nil end end)
 
--- Rollen (ax_players.roles JSON)
-local function fetchRoles(uid)
-  local row = ax:DbSingle('SELECT roles FROM ax_players WHERE uid=? LIMIT 1', { uid }) or {}
-  local raw = row.roles
-  if not raw or raw=='' then return {} end
-  local ok, list = pcall(json.decode, raw)
-  return (ok and type(list)=='table') and list or {}
-end
-
-local function saveRoles(uid, roles)
-  ax:DbExec('UPDATE ax_players SET roles=? WHERE uid=?', { json.encode(roles), uid })
-end
-
+-- Rollen in separater Tabelle (ax_perm_roles)
 local function hasRole(uid, role)
-  local roles = fetchRoles(uid)
-  for _,r in ipairs(roles) do if r==role then return true end end
-  return false
+  local r = ax:DbScalar(
+    'SELECT 1 FROM ax_perm_roles WHERE uid = ? AND role = ? LIMIT 1',
+    { uid, role }
+  )
+  return r ~= nil
+end
+
+local roleAllow = {}
+do
+  local arr = ((cfg.roles or {}).allow) or {}
+  for _, r in ipairs(arr) do roleAllow[r] = true end
+end
+
+local function roleAllowed(role)
+  return roleAllow[role] or false
 end
 
 local function addRole(uid, role)
-  local roles = fetchRoles(uid)
-  for _,r in ipairs(roles) do if r==role then return end end
-  roles[#roles+1] = role
-  saveRoles(uid, roles)
-  if Axiom.audit then Axiom.audit('role.add','uid=%s role=%s',uid,role) end
+  if not roleAllowed(role) then
+    if log and log.warn then log.warn('addRole: unknown role %s', tostring(role)) end
+    return false, 'E_ROLE_UNKNOWN'
+  end
+  ax:DbExec(
+    'INSERT IGNORE INTO ax_perm_roles (uid, role) VALUES (?, ?)',
+    { uid, role }
+  )
+  if Axiom.audit then Axiom.audit('role.add', 'uid=%s role=%s', uid, role) end
+  return true
 end
 
 local function removeRole(uid, role)
-  local roles = fetchRoles(uid)
-  local idx
-  for i,r in ipairs(roles) do if r==role then idx=i break end end
-  if not idx then return end
-  table.remove(roles, idx)
-  saveRoles(uid, roles)
-  if Axiom.audit then Axiom.audit('role.remove','uid=%s role=%s',uid,role) end
+  ax:DbExec(
+    'DELETE FROM ax_perm_roles WHERE uid = ? AND role = ?',
+    { uid, role }
+  )
+  if Axiom.audit then Axiom.audit('role.remove', 'uid=%s role=%s', uid, role) end
+end
+
+local function listRoles(uid)
+  local rows = ax:DbQuery(
+    'SELECT role FROM ax_perm_roles WHERE uid = ? ORDER BY role ASC',
+    { uid }
+  ) or {}
+  local out = {}
+  for _, r in ipairs(rows) do out[#out+1] = r.role end
+  return out
+end
+
+local function isAdmin(uid)
+  return hasRole(uid, 'admin')
 end
 
 -- Player-Meta KV
@@ -84,10 +102,12 @@ exports('GetSrc', function(uid) return srcByUid[uid] end)
 exports('ForEachPlayer', function(cb) for s,u in pairs(uidBySrc) do if cb(s,u)==false then break end end end)
 exports('Count', function() local c=0 for _ in pairs(uidBySrc) do c=c+1 end return c end)
 
-exports('HasRole',   function(uid, role) return hasRole(uid, role) end)
-exports('AddRole',   function(uid, role) addRole(uid, role) end)
-exports('RemoveRole',function(uid, role) removeRole(uid, role) end)
-exports('GetRoles',  function(uid) return fetchRoles(uid) end)
+exports('HasRole',     hasRole)
+exports('AddRole',     addRole)
+exports('RemoveRole',  removeRole)
+exports('ListRoles',   listRoles)
+exports('RoleAllowed', roleAllowed)
+exports('IsAdmin',     isAdmin)
 
 exports('PlayerGetMeta',   playerGetMeta)
 exports('PlayerSetMetaKV', playerSetMetaKV)

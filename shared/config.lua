@@ -17,6 +17,10 @@ Axiom.config = {
     allow_uids = {},
   },
 
+  roles = {
+    allow = { 'admin', 'dev', 'staff' },
+  },
+
   -- Rate-Limiter
   rate_limit = {
     capacity   = 5,
