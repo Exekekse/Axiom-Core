@@ -5,7 +5,7 @@ local ax  = exports[RES]
 local DbScalar = function(q,p) return ax:DbScalar(q,p) end
 local DbExec   = function(q,p) return ax:DbExec(q,p)   end
 
-local regs = {} -- modul -> { {version, sql}, ... }
+local regs = {} -- modul -> { {version, steps}, ... }
 
 local function ensureStateTable()
   DbExec([[
@@ -26,9 +26,9 @@ local function mark(mod, ver)
   DbExec('INSERT IGNORE INTO axiom_migrations (module, version) VALUES (?,?)', {mod, ver})
 end
 
-local function RegisterMigration(module, version, sql)
+local function RegisterMigration(module, version, steps)
   regs[module] = regs[module] or {}
-  regs[module][#regs[module]+1] = { version = version, sql = sql }
+  regs[module][#regs[module]+1] = { version = version, steps = steps }
   table.sort(regs[module], function(a,b) return tostring(a.version) < tostring(b.version) end)
 end
 
@@ -38,6 +38,61 @@ local function preview(sql)
   return sql
 end
 
+local function makeCtx()
+  local function helper(stage, fn)
+    return function(sql, params)
+      assert(type(sql)=='string', ('E_DB_BADSQL: expected string, got %s'):format(type(sql)))
+      if params ~= nil and type(params) ~= 'table' then
+        error(('E_DB_BADPARAMS: expected table, got %s'):format(type(params)))
+      end
+      local ok, res = pcall(fn, sql, params)
+      if not ok then error({ stage = stage, sql = sql, params_kind = type(params), err = tostring(res) }) end
+      return res
+    end
+  end
+  local ctx = {}
+  ctx.scalar = helper('scalar', DbScalar)
+  ctx.exec   = helper('exec',   DbExec)
+  ctx.tx     = function(fn)
+    assert(type(fn)=='function', ('E_DB_BADTXFN: expected function, got %s'):format(type(fn)))
+    return ax:DbTx(function(tx)
+      local txCtx = {
+        scalar = helper('tx.scalar', tx.scalar),
+        exec   = helper('tx.exec',   tx.exec),
+      }
+      return fn(txCtx)
+    end)
+  end
+  return ctx
+end
+
+local function runSteps(steps)
+  local ctx
+  for _, step in ipairs(steps) do
+    if type(step) == 'function' then
+      ctx = ctx or makeCtx()
+      step(ctx)
+    else
+      local sql, params, stage
+      if type(step) == 'string' then
+        sql = step
+        params = nil
+        stage = 'sql'
+      elseif type(step) == 'table' then
+        assert(type(step.sql)=='string', ('E_DB_BADSQL: expected string, got %s'):format(type(step.sql)))
+        sql = step.sql
+        params = (type(step.params)=='table') and step.params or nil
+        stage = step.stage or 'sql'
+      else
+        error(('E_MIG_BADSTEP: expected string/table/function, got %s'):format(type(step)))
+      end
+      local fn = (stage == 'scalar') and DbScalar or DbExec
+      local ok, res = pcall(fn, sql, params)
+      if not ok then error({ stage = stage, sql = sql, params_kind = type(params), err = tostring(res) }) end
+    end
+  end
+end
+
 local function runFor(mod)
   local list = regs[mod]; if not list or #list==0 then return end
   for _,m in ipairs(list) do
@@ -45,33 +100,12 @@ local function runFor(mod)
       log.info('Migration %s:%s wird angewendet …', mod, m.version)
       if Axiom.audit then Axiom.audit('migration.start', mod..':'..m.version, 'system') end
       local ok, err = pcall(function()
-        if type(m.sql) == 'function' then
-          local function helper(stage, fn)
-            return function(sql, params)
-              assert(type(sql)=='string', ('E_DB_BADSQL: expected string, got %s'):format(type(sql)))
-              if params ~= nil and type(params) ~= 'table' then error(('E_DB_BADPARAMS: expected table, got %s'):format(type(params))) end
-              local ok2, res2 = pcall(fn, sql, params)
-              if not ok2 then error({ stage=stage, sql=sql, params_kind=type(params), err=tostring(res2) }) end
-              return res2
-            end
-          end
-          local ctx = {}
-          ctx.scalar = helper('scalar', DbScalar)
-          ctx.exec   = helper('exec',   DbExec)
-          ctx.tx     = function(fn)
-            assert(type(fn)=='function', ('E_DB_BADTXFN: expected function, got %s'):format(type(fn)))
-            return ax:DbTx(function(tx)
-              local txCtx = {
-                scalar = helper('tx.scalar', tx.scalar),
-                exec   = helper('tx.exec',   tx.exec),
-              }
-              return fn(txCtx)
-            end)
-          end
-          return m.sql(ctx)
+        if type(m.steps) == 'function' then
+          return m.steps(makeCtx())
         else
-          assert(type(m.sql)=='string', ('E_DB_BADSQL: expected string, got %s'):format(type(m.sql)))
-          return DbExec(m.sql)
+          local steps = m.steps
+          if type(steps) ~= 'table' then steps = { steps } end
+          runSteps(steps)
         end
       end)
       if not ok then
@@ -79,14 +113,18 @@ local function runFor(mod)
         local msg, stage, sqlPrev, paramsKind
         if type(det) == 'table' then
           msg        = det.err or det.message or det.code or tostring(det)
-          stage      = det.stage
+          stage      = det.stage or 'sql'
           sqlPrev    = preview(det.sql)
-          paramsKind = det.params_kind
+          if sqlPrev == '' then sqlPrev = '<none>' end
+          paramsKind = det.params_kind or 'nil'
         else
-          msg = tostring(det)
+          msg        = tostring(det)
+          stage      = 'sql'
+          sqlPrev    = '<none>'
+          paramsKind = 'nil'
         end
         log.error('Migration %s:%s FEHLER stage=%s sql="%s" params=%s error=%s\n%s',
-          mod, m.version, tostring(stage or '?'), tostring(sqlPrev or ''), tostring(paramsKind or 'nil'), tostring(msg), debug.traceback())
+          mod, m.version, stage, sqlPrev, paramsKind, msg, debug.traceback())
         if Axiom.audit then Axiom.audit('migration.error', mod..':'..m.version, 'system', tostring(msg)) end
         return
       end

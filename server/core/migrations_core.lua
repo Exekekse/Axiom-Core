@@ -82,7 +82,7 @@ RegisterMigration('axiom-core', '0014_indexes', function(ctx)
   ctx.tx(function(tx)
     for _, ix in ipairs(indexes) do
       local exists = tx.scalar(
-        [[SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?]],
+        'SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name=?',
         {ix.table, ix.index}
       ) or 0
       if exists == 0 then

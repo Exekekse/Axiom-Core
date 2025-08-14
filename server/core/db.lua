@@ -64,7 +64,6 @@ local function ensureParams(p)
 end
 
 local function run(op, q, p, fn)
-  ensureSql(q); ensureParams(p)
   local t0 = GetGameTimer()
   local ok, res = pcall(fn, q, p or {})
   local ms = GetGameTimer() - t0
@@ -85,18 +84,22 @@ local mysql = {
 }
 
 local function scalar(q, p)
+  ensureSql(q); ensureParams(p)
   if not need() then return nil end
   return run('scalar', q, p, mysql.scalar)
 end
 local function single(q, p)
+  ensureSql(q); ensureParams(p)
   if not need() then return nil end
   return run('single', q, p, mysql.single)
 end
 local function query(q, p)
+  ensureSql(q); ensureParams(p)
   if not need() then return nil end
   return run('query', q, p, mysql.query)
 end
 local function exec(q, p)
+  ensureSql(q); ensureParams(p)
   if not need() then return 0 end
   return run('exec', q, p, mysql.exec)
 end
@@ -107,10 +110,10 @@ local function tx(fn)
   MySQL.update.await('START TRANSACTION')
   local ok, err = pcall(function()
     local sql = {
-      exec   = function(q, p) return run('tx.exec', q, p, mysql.exec) end,
-      query  = function(q, p) return run('tx.query', q, p, mysql.query) end,
-      single = function(q, p) return run('tx.single', q, p, mysql.single) end,
-      scalar = function(q, p) return run('tx.scalar', q, p, mysql.scalar) end,
+      exec   = function(q, p) ensureSql(q); ensureParams(p); return run('tx.exec', q, p, mysql.exec) end,
+      query  = function(q, p) ensureSql(q); ensureParams(p); return run('tx.query', q, p, mysql.query) end,
+      single = function(q, p) ensureSql(q); ensureParams(p); return run('tx.single', q, p, mysql.single) end,
+      scalar = function(q, p) ensureSql(q); ensureParams(p); return run('tx.scalar', q, p, mysql.scalar) end,
     }
     return fn(sql)
   end)
