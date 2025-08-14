@@ -5,6 +5,7 @@ local hb   = tonumber(cfg.heartbeat_ms) or 60000
 local RES  = GetCurrentResourceName()
 local ax   = exports[RES]
 local CORE = 'Axiom-Core'
+local started = GetGameTimer()
 local allowedRoles = (cfg.roles and cfg.roles.allow) or {}
 local getTime = GetGameTimer
 local Wait = Wait
@@ -234,7 +235,42 @@ RegisterCommand('axiom:health', function(src)
   if src==0 then print(summary) else TriggerClientEvent('chat:addMessage', src, { args={'Axiom', summary} }) end
 end, false)
 
-RegisterCommand('axiom:metrics', function(src)
+RegisterCommand('axiom:metrics', function(src, args)
+  if args[1] == 'raw' then
+    local rpc = ax:RpcMetrics() or {}
+    local by = {}
+    local tot = { calls=0, ok=0, fail=0, rate=0, total_ms=0 }
+    for name,st in pairs(rpc) do
+      by[name] = { calls=st.calls, ok=st.ok, fail=st.fail, avg_ms=math.floor(st.avg_ms) }
+      tot.calls = tot.calls + st.calls
+      tot.ok    = tot.ok + st.ok
+      tot.fail  = tot.fail + st.fail
+      tot.rate  = tot.rate + st.rate
+      tot.total_ms = tot.total_ms + (st.avg_ms * st.calls)
+    end
+    local rpcOut = {
+      calls = tot.calls,
+      ok = tot.ok,
+      fail = tot.fail,
+      rate = tot.rate,
+      avg_ms = (tot.calls>0 and tot.total_ms/tot.calls or 0),
+      p95_ms = 0,
+      by_name = by,
+    }
+    local out = {
+      rpc = rpcOut,
+      db = ax:DbMetrics() or {},
+      cache = ax:CacheMetrics() or {},
+      errors = { by_code = ax:ErrCounts() or {} },
+      uptime_ms = GetGameTimer() - started,
+      version = Axiom.version,
+      ts = os.time()*1000,
+    }
+    local line = json.encode(out)
+    if src==0 then print(line) else TriggerClientEvent('chat:addMessage',src,{args={'Axiom',line}}) end
+    return
+  end
+
   local rpc = ax:RpcMetrics() or {}
   local rows = {}
   for name,st in pairs(rpc) do rows[#rows+1]={ name=name, calls=st.calls, ok=st.ok, fail=st.fail, rate=st.rate, exc=st.exc, avg=math.floor(st.avg_ms) } end
@@ -268,21 +304,15 @@ RegisterCommand('axiom:check', function(src)
   local orphanPMeta = ax:DbQuery([[SELECT m.uid FROM ax_player_meta m LEFT JOIN ax_players p ON p.uid=m.uid WHERE p.uid IS NULL]]) or {}
   local orphanCMeta = ax:DbQuery([[SELECT m.cid FROM ax_character_meta m LEFT JOIN ax_characters c ON c.cid=m.cid WHERE c.cid IS NULL]]) or {}
   local ok = (#missing==0 and #extras==0 and #orphanRoles==0 and #orphanPMeta==0 and #orphanCMeta==0)
-  local status = ok and 'OK' or 'NOK'
-  print(('[Axiom] Consistency %s: players_without_char=%d, chars_not_1to1=%d, orphan_roles=%d, orphan_player_meta=%d, orphan_character_meta=%d')
-    :format(status, #missing, #extras, #orphanRoles, #orphanPMeta, #orphanCMeta))
-  local function sample(rows, field)
-    local out = {}
-    for i=1,math.min(3,#rows) do out[#out+1] = rows[i][field] end
-    return table.concat(out, ',')
-  end
-  if not ok then
-    if #missing>0 then print('  missing uid:', sample(missing,'uid')) end
-    if #extras>0 then print('  not_1to1 uid:', sample(extras,'uid')) end
-    if #orphanRoles>0 then print('  orphan_roles uid:', sample(orphanRoles,'uid')) end
-    if #orphanPMeta>0 then print('  orphan_player_meta uid:', sample(orphanPMeta,'uid')) end
-    if #orphanCMeta>0 then print('  orphan_character_meta cid:', sample(orphanCMeta,'cid')) end
-  end
+  local data = {
+    players_without_char = #missing,
+    chars_not_1to1 = #extras,
+    orphan_roles = #orphanRoles,
+    orphan_player_meta = #orphanPMeta,
+    orphan_character_meta = #orphanCMeta,
+  }
+  local res = ok and Axiom.err.ok(data) or Axiom.err.fail('E_INVALID','consistency',data)
+  print(json.encode(res))
 end,false)
 
 RegisterCommand('axiom:roles:add', function(src, args)
@@ -302,9 +332,10 @@ RegisterCommand('axiom:roles:add', function(src, args)
     print('Role existiert bereits')
     return
   end
-  local ok, e = ax:AddRole(uid, role)
-  if not ok and e == 'E_ROLE_UNKNOWN' then
-    print('Role unbekannt. Erlaubt: '..table.concat(allowedRoles, ', '))
+  local res = ax:AddRole(uid, role)
+  if not res.ok then
+    if res.code == 'E_INVALID' then print('Role unbekannt. Erlaubt: '..table.concat(allowedRoles, ', '))
+    else print('Fehler: '..tostring(res.code)) end
     return
   end
   ax:Audit('role.add', uid, 'console', ('role=%s'):format(role))
@@ -324,7 +355,8 @@ RegisterCommand('axiom:roles:remove', function(src, args)
     print('Usage: axiom:roles:remove <uid|id|license|…> <role>')
     return
   end
-  ax:RemoveRole(uid, role)
+  local res = ax:RemoveRole(uid, role)
+  if not res.ok then print('Fehler: '..tostring(res.code or 'unknown')) return end
   ax:Audit('role.remove', uid, 'console', ('role=%s'):format(role))
   print(('removed role %s from uid=%s'):format(role, uid))
 end,false)
