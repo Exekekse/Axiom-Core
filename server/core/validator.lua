@@ -1,6 +1,8 @@
 Axiom = Axiom or {}
 Axiom.v = {}
-local err = (Axiom.err and Axiom.err.fail) or function(code,msg,data) return { ok=false, code=code, msg=msg, data=data } end
+local err = (Axiom.err and Axiom.err.fail) or function(code,msg,data)
+  return { ok=false, error={ code=code, message=msg, details=data } }
+end
 
 function Axiom.v.type(val, want) return (type(val) == want), ('expected '..want..', got '..type(val)) end
 function Axiom.v.len(s, min, max) if type(s)~='string' then return false,'expected string' end local n=#s; if min and n<min then return false,'min '..min end if max and n>max then return false,'max '..max end return true end

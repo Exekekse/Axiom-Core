@@ -12,6 +12,20 @@ local Wait = Wait
 
 pcall(function() ax:SetLogLevel((cfg.log_level or 'info'):lower()) end)
 
+Axiom.flags = Axiom.flags or {}
+Axiom.metrics = Axiom.metrics or {}
+local flags = Axiom.flags
+local function probeSchema()
+  local ok
+  ok = pcall(function() return ax:DbSingle("SHOW COLUMNS FROM ax_players LIKE 'license'") end)
+  flags.has_license_column = ok
+  ok = pcall(function() return ax:DbSingle("SHOW COLUMNS FROM ax_players LIKE 'id_kind'") end)
+  local ok2 = pcall(function() return ax:DbSingle("SHOW COLUMNS FROM ax_players LIKE 'id_value'") end)
+  flags.has_ident_table = ok and ok2
+  log.debug('Schema flags: license=%s ident=%s', tostring(flags.has_license_column), tostring(flags.has_ident_table))
+end
+probeSchema()
+
 local running = true
 CreateThread(function()
   log.info('Core %s gestartet (Resource: %s) – LogLevel=%s, Heartbeat=%dms',
@@ -37,24 +51,69 @@ local CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 local function genUid(n) n=n or 10; local t={} for i=1,n do local k=math.random(#CHARS); t[i]=CHARS:sub(k,k) end; return table.concat(t) end
 local function isValidUid(u) return type(u)=='string' and #u==10 and u:match('^[A-Za-z0-9]+$')~=nil end
 
+local function sqlSelectUid(sql, kind, value)
+  if flags.has_ident_table then
+    return sql.single('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1', { kind, value })
+  elseif flags.has_license_column then
+    if kind ~= 'license' then return nil end
+    return sql.single('SELECT uid FROM ax_players WHERE license=? LIMIT 1', { value })
+  end
+end
+
+local function sqlUpdatePlayer(sql, name, kind, value)
+  if flags.has_ident_table then
+    sql.exec('UPDATE ax_players SET name=?, last_seen=CURRENT_TIMESTAMP WHERE id_kind=? AND id_value=?', { name, kind, value })
+  elseif flags.has_license_column then
+    sql.exec('UPDATE ax_players SET name=?, last_seen=CURRENT_TIMESTAMP WHERE license=?', { name, value })
+  end
+end
+
+local function sqlInsertPlayer(sql, uid, kind, value, name)
+  if flags.has_ident_table then
+    sql.exec([[INSERT INTO ax_players (uid, id_kind, id_value, name)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE name=VALUES(name), last_seen=CURRENT_TIMESTAMP]], { uid, kind, value, name })
+  elseif flags.has_license_column then
+    sql.exec([[INSERT INTO ax_players (uid, license, name)
+        VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE name=VALUES(name), last_seen=CURRENT_TIMESTAMP]], { uid, value, name })
+  end
+end
+
+local function dbSelectUid(kind, value)
+  if flags.has_ident_table then
+    return ax:DbSingle('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1', { kind, value })
+  elseif flags.has_license_column then
+    if kind ~= 'license' then return nil end
+    return ax:DbSingle('SELECT uid FROM ax_players WHERE license=? LIMIT 1', { value })
+  end
+end
+
+local function dbUpdateLastSeen(kind, value)
+  if flags.has_ident_table then
+    ax:DbExec('UPDATE ax_players SET last_seen=CURRENT_TIMESTAMP WHERE id_kind=? AND id_value=?', { kind, value })
+  elseif flags.has_license_column then
+    if kind ~= 'license' then return end
+    ax:DbExec('UPDATE ax_players SET last_seen=CURRENT_TIMESTAMP WHERE license=?', { value })
+  end
+end
+
 local function ensureUidFor(kind, value, name)
   for _=1,20 do
     local ok, err = ax:DbTx(function(sql)
-      local row = sql.single('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1', { kind, value })
+      local row = sqlSelectUid(sql, kind, value)
       if row and row.uid and row.uid~='' then
-        sql.exec('UPDATE ax_players SET name=?, last_seen=CURRENT_TIMESTAMP WHERE id_kind=? AND id_value=?', { name, kind, value })
+        sqlUpdatePlayer(sql, name, kind, value)
         return true
       end
       local uid = genUid(10); if not isValidUid(uid) then error('invalid_uid') end
       local ex = sql.scalar('SELECT 1 FROM ax_players WHERE uid=? LIMIT 1', { uid }); if ex then error('uid_collision') end
-      sql.exec([[
-        INSERT INTO ax_players (uid, id_kind, id_value, name)
-        VALUES (?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE name=VALUES(name), last_seen=CURRENT_TIMESTAMP
-      ]], { uid, kind, value, name })
+      sqlInsertPlayer(sql, uid, kind, value, name)
       return true
     end)
-    if ok then local out=ax:DbSingle('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1',{kind,value}); return out and out.uid or nil
+    if ok then
+      local out = dbSelectUid(kind, value)
+      return out and out.uid or nil
     else local s=tostring(err or ''); if not (s:find('uid_collision') or s:find('invalid_uid')) then log.warn('ensureUidFor Tx-Fehler: %s',s); break end end
   end
   log.warn('ensureUidFor: UID konnte nicht zugewiesen werden (%s:%s)', tostring(kind), tostring(value))
@@ -67,9 +126,35 @@ Axiom.kpi = { join_ms_sum=0, join_count=0, char_ms_sum=0, char_count=0 }
 AddEventHandler('playerConnecting', function(name, setKickReason, deferrals)
   local src = source
   local tJoin = getTime()
-  local kind, value = getPreferredIdent(src); if not kind then return end
+  local corr = (Axiom.err and Axiom.err.newCid) and Axiom.err.newCid() or ('%08x'):format(math.random(0,0xFFFFFFFF))
+  log.debug('[%s] connect src=%s name=%s', corr, tostring(src), tostring(name))
+  local kind, value = getPreferredIdent(src); if not kind then
+    setKickReason('Identifier fehlt')
+    CancelEvent()
+    return
+  end
 
   local uid = ensureUidFor(kind, value, name)
+  Axiom.metrics = Axiom.metrics or {}
+  if uid then
+    Axiom.metrics.resolve_ok = (Axiom.metrics.resolve_ok or 0) + 1
+  else
+    Axiom.metrics.resolve_fail = (Axiom.metrics.resolve_fail or 0) + 1
+    setKickReason('UID konnte nicht ermittelt werden')
+    CancelEvent()
+    return
+  end
+
+  local banned, reason = ax:IsBanned(uid)
+  if banned then
+    Axiom.metrics.banned = (Axiom.metrics.banned or 0) + 1
+    local br = Axiom.metrics.ban_reasons or {}
+    br[reason or 'unknown'] = (br[reason or 'unknown'] or 0) + 1
+    Axiom.metrics.ban_reasons = br
+    setKickReason(('Banned (%s)'):format(reason or 'unknown'))
+    CancelEvent()
+    return
+  end
   local function ensureChar(uid)
     local t0 = getTime()
     local cid = ax:CharEnsure(uid, { firstname = (name or ''):sub(1,30), lastname = '' })
@@ -105,7 +190,7 @@ AddEventHandler('playerDropped', function()
   local src = source
   local kind, value = getPreferredIdent(src); if not kind then return end
   local ok, err = pcall(function()
-    ax:DbExec('UPDATE ax_players SET last_seen=CURRENT_TIMESTAMP WHERE id_kind=? AND id_value=?', { kind, value })
+    dbUpdateLastSeen(kind, value)
   end)
   if not ok then log.warn('playerDropped update error: %s', tostring(err)) end
 end)
@@ -122,9 +207,9 @@ end
 
 local function smokeAllowed(src)
   if src==0 then return true end
-  local kind,value = getPreferredIdent(src); if not kind then return false end
-  local row = ax:DbSingle('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1',{kind,value})
-  local uid = row and row.uid
+    local kind,value = getPreferredIdent(src); if not kind then return false end
+    local row = dbSelectUid(kind, value)
+    local uid = row and row.uid
   if not uid then return false end
   if ALLOW_SMOKE[uid] then return true end
   return ax:HasRole(uid,'admin') or false
@@ -156,16 +241,13 @@ local function resolveUid(target)
   end
 
   -- bare license (hex 32–64)
-  if #target >= 32 and #target <= 64 and isHex(target) then
-    local row = exports[CORE]:DbSingle(
-      'SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1',
-      { 'license', target:lower() }
-    )
-    if not row or not row.uid then
-      return nil, ('no player found for license:%s'):format(target)
+    if #target >= 32 and #target <= 64 and isHex(target) then
+      local row = dbSelectUid('license', target:lower())
+      if not row or not row.uid then
+        return nil, ('no player found for license:%s'):format(target)
+      end
+      return row.uid
     end
-    return row.uid
-  end
 
   -- prefixierte Formen
   local kind, value = splitFirst(target, ':')
@@ -188,14 +270,11 @@ local function resolveUid(target)
     local allowed = { license=true, steam=true, rockstar=true, fivem=true, discord=true, xbl=true, live=true }
     if not allowed[kind] then return nil, 'unknown identifier kind' end
     if value == '' then return nil, 'missing identifier value' end
-    local row = exports[CORE]:DbSingle(
-      'SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1',
-      { kind, value }
-    )
-    if not row or not row.uid then
-      return nil, ('no player found for %s:%s'):format(kind, value)
-    end
-    return row.uid
+      local row = dbSelectUid(kind, value)
+      if not row or not row.uid then
+        return nil, ('no player found for %s:%s'):format(kind, value)
+      end
+      return row.uid
   end
 end
 
@@ -291,7 +370,7 @@ end,false)
 RegisterCommand('axiom:uid', function(src)
   if src==0 then print('Nur ingame.') return end
   local kind,value=getPreferredIdent(src); if not kind then return end
-  local row=ax:DbSingle('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1',{kind,value})
+  local row=dbSelectUid(kind, value)
   local uid=(row and row.uid) or 'n/a'
   TriggerClientEvent('chat:addMessage', src, { args={'Axiom', ('UID: ^3%s'):format(uid)} })
 end,false)
@@ -334,9 +413,10 @@ RegisterCommand('axiom:roles:add', function(src, args)
     return
   end
   local res = ax:AddRole(uid, role)
-  if not res.ok then
-    if res.code == 'E_INVALID' then print('Role unbekannt. Erlaubt: '..table.concat(allowedRoles, ', '))
-    else print('Fehler: '..tostring(res.code)) end
+    if not res.ok then
+      local code = res.error and res.error.code or 'unknown'
+      if code == 'E_INVALID' then print('Role unbekannt. Erlaubt: '..table.concat(allowedRoles, ', '))
+      else print('Fehler: '..tostring(code)) end
     return
   end
   ax:Audit('role.add', uid, 'console', ('role=%s'):format(role))
@@ -357,7 +437,11 @@ RegisterCommand('axiom:roles:remove', function(src, args)
     return
   end
   local res = ax:RemoveRole(uid, role)
-  if not res.ok then print('Fehler: '..tostring(res.code or 'unknown')) return end
+  if not res.ok then
+    local code = res.error and res.error.code or 'unknown'
+    print('Fehler: '..tostring(code))
+    return
+  end
   ax:Audit('role.remove', uid, 'console', ('role=%s'):format(role))
   print(('removed role %s from uid=%s'):format(role, uid))
 end,false)
