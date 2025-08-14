@@ -120,6 +120,26 @@ local function smokeAllowed(src)
   return ax:HasRole(uid,'admin') or false
 end
 
+local function resolveTargetUid(target)
+  if not target or target=='' then return nil, 'kein Ziel' end
+  local u = target:match('^uid:([A-Za-z0-9]+)$')
+  if u then return u end
+  local lic = target:match('^license:(.+)$')
+  if lic then
+    local uid = ensureUidFor('license', lic, '')
+    if uid then return uid end
+    return nil, 'Lizenz nicht gefunden'
+  end
+  local sid = target:match('^id:(%d+)$')
+  if sid then
+    local srcId = tonumber(sid)
+    local uid = ax:GetUid(srcId)
+    if not uid then return nil, 'Spieler nicht online' end
+    return uid
+  end
+  return nil, 'Ungültiges Ziel'
+end
+
 -- Commands
 RegisterCommand('axiom:ping', function(src) if src==0 then print('[Axiom] pong (server console)') else TriggerClientEvent('chat:addMessage',src,{args={'Axiom','^2pong'}}) end end,false)
 
@@ -192,5 +212,43 @@ RegisterCommand('axiom:check', function(src)
     if #extras>0 then print('Not 1:1 (uid,n):'); for _,r in ipairs(extras) do print('-',r.uid,r.n) end end
   else
     TriggerClientEvent('chat:addMessage', src, { args={'Axiom', ('Consistency: missing=%d, not_1to1=%d'):format(#missing,#extras)} })
+  end
+end,false)
+
+RegisterCommand('axiom:roles:add', function(src, args)
+  if src~=0 then print('Nur Server-Konsole.') return end
+  local target, role = args[1], args[2]
+  if not target or not role then print('Usage: axiom:roles:add <target> <role>') return end
+  local uid, err = resolveTargetUid(target)
+  if not uid then print('Fehler: '..(err or 'UID nicht gefunden')) return end
+  if ax:HasRole(uid, role) then print('Rolle existiert bereits') return end
+  ax:AddRole(uid, role)
+  log.info('[SECURITY] Role %s %s -> %s', 'add', role, uid)
+  print(('[Axiom] Rolle %s für %s hinzugefügt'):format(role, uid))
+end,false)
+
+RegisterCommand('axiom:roles:remove', function(src, args)
+  if src~=0 then print('Nur Server-Konsole.') return end
+  local target, role = args[1], args[2]
+  if not target or not role then print('Usage: axiom:roles:remove <target> <role>') return end
+  local uid, err = resolveTargetUid(target)
+  if not uid then print('Fehler: '..(err or 'UID nicht gefunden')) return end
+  if not ax:HasRole(uid, role) then print('Rolle nicht vorhanden') return end
+  ax:RemoveRole(uid, role)
+  log.info('[SECURITY] Role %s %s -> %s', 'remove', role, uid)
+  print(('[Axiom] Rolle %s für %s entfernt'):format(role, uid))
+end,false)
+
+RegisterCommand('axiom:roles:list', function(src, args)
+  if src~=0 then print('Nur Server-Konsole.') return end
+  local target = args[1]
+  if not target then print('Usage: axiom:roles:list <target>') return end
+  local uid, err = resolveTargetUid(target)
+  if not uid then print('Fehler: '..(err or 'UID nicht gefunden')) return end
+  local roles = ax:GetRoles(uid) or {}
+  if #roles==0 then
+    print(('[Axiom] %s hat keine Rollen'):format(uid))
+  else
+    print(('[Axiom] Rollen für %s: %s'):format(uid, table.concat(roles, ', ')))
   end
 end,false)
