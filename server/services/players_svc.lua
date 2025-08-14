@@ -1,7 +1,16 @@
 Axiom = Axiom or {}
+local log = Axiom.log or { info=print, warn=print, error=print }
 local RES = GetCurrentResourceName()
 local ax  = exports[RES]
 local cfg = Axiom.config or {}
+local allowedRoles = (cfg.roles and cfg.roles.allow) or {}
+
+local function roleAllowed(role)
+  for _, r in ipairs(allowedRoles) do
+    if r == role then return true end
+  end
+  return false
+end
 
 local PREFIX = {
   license='license:', rockstar='license:',
@@ -45,11 +54,16 @@ local function hasRole(uid, role)
 end
 
 local function addRole(uid, role)
+  if not roleAllowed(role) then
+    log.warn('Unknown role %s', tostring(role))
+    return false, 'E_ROLE_UNKNOWN'
+  end
   ax:DbExec(
     'INSERT IGNORE INTO ax_perm_roles (uid, role) VALUES (?, ?)',
     { uid, role }
   )
   if Axiom.audit then Axiom.audit('role.add', 'uid=%s role=%s', uid, role) end
+  return true
 end
 
 local function removeRole(uid, role)
@@ -58,6 +72,7 @@ local function removeRole(uid, role)
     { uid, role }
   )
   if Axiom.audit then Axiom.audit('role.remove', 'uid=%s role=%s', uid, role) end
+  return true
 end
 
 local function listRoles(uid)
@@ -83,9 +98,11 @@ exports('ForEachPlayer', function(cb) for s,u in pairs(uidBySrc) do if cb(s,u)==
 exports('Count', function() local c=0 for _ in pairs(uidBySrc) do c=c+1 end return c end)
 
 exports('HasRole',   function(uid, role) return hasRole(uid, role) end)
-exports('AddRole',   function(uid, role) addRole(uid, role) end)
-exports('RemoveRole',function(uid, role) removeRole(uid, role) end)
+exports('AddRole',   function(uid, role) return addRole(uid, role) end)
+exports('RemoveRole',function(uid, role) return removeRole(uid, role) end)
 exports('ListRoles', listRoles)
+exports('RoleAllowed', roleAllowed)
+exports('IsAdmin', function(uid) return hasRole(uid, 'admin') end)
 
 exports('PlayerGetMeta',   playerGetMeta)
 exports('PlayerSetMetaKV', playerSetMetaKV)

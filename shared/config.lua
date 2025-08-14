@@ -27,6 +27,10 @@ Axiom.config = {
   },
 
   health = { errors_last_n = 5, top_rpc_n = 5 },
+
+  roles = {
+    allow = { 'admin', 'dev', 'staff' },
+  },
 }
 
 return Axiom.config
