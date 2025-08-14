@@ -3,9 +3,9 @@ local EV  = Axiom.ev
 local log = Axiom.log or { error=print, debug=print }
 
 local rate = function(key, src)
-  local ok = true
-  pcall(function() ok = exports['axiom-core']:RateLimit(key, src) end)
-  return ok
+  local ok, retry = true, 0
+  pcall(function() ok, retry = exports['axiom-core']:RateLimit(key, src) end)
+  return ok, retry
 end
 local errPush = function(scope, code, msg, det)
   pcall(function() exports['axiom-core']:ErrPush(scope, code, msg, det) end)
@@ -22,10 +22,11 @@ RegisterNetEvent(EV.RpcReq, function(id, name, payload)
   local mt = m(name)
   local t0 = GetGameTimer()
 
-  if not rate('rpc:'..tostring(name), src) then
+  local allowed, retry = rate('rpc:'..tostring(name), src)
+  if not allowed then
     mt.calls = mt.calls + 1; mt.rate = mt.rate + 1
     errPush('rpc', 'E_RATE_LIMIT', ('%s from %s'):format(name, src))
-    TriggerClientEvent(EV.RpcRes, src, id, false, 'rate_limited')
+    TriggerClientEvent(EV.RpcRes, src, id, true, { ok=false, code='E_RATE_LIMIT', data={ retry_after=retry } })
     return
   end
 
@@ -33,7 +34,7 @@ RegisterNetEvent(EV.RpcReq, function(id, name, payload)
   if not fn then
     mt.calls = mt.calls + 1; mt.fail = mt.fail + 1
     errPush('rpc', 'E_NOT_FOUND', name)
-    TriggerClientEvent(EV.RpcRes, src, id, false, 'not_found')
+    TriggerClientEvent(EV.RpcRes, src, id, true, { ok=false, code='E_NOT_FOUND' })
     return
   end
 
@@ -45,7 +46,7 @@ RegisterNetEvent(EV.RpcReq, function(id, name, payload)
   if not ok then
     mt.exc = mt.exc + 1
     errPush('rpc', 'E_EXCEPTION', name, tostring(res))
-    TriggerClientEvent(EV.RpcRes, src, id, false, 'exception')
+    TriggerClientEvent(EV.RpcRes, src, id, true, { ok=false, code='E_EXCEPTION' })
     return
   end
 

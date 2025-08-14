@@ -26,6 +26,10 @@ Axiom.config = {
     },
   },
 
+  db = { slow_ms = 100 },
+
+  cache = { ttl_sec = 60 },
+
   health = { errors_last_n = 5, top_rpc_n = 5 },
 
   roles = {

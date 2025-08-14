@@ -16,8 +16,10 @@ local function allow(key)
   if not b then b = { tokens = cap, last = t, cap = cap, refill = refill }; buckets[key] = b
   else if b.cap ~= cap or b.refill ~= refill then b.tokens = math.min(cap, b.tokens); b.cap, b.refill = cap, refill end end
   local dt = t - b.last; if dt > 0 then local add = (dt / b.refill) * b.cap; if add > 0 then b.tokens = math.min(b.cap, b.tokens + add); b.last = t end end
-  if b.tokens >= 1 then b.tokens = b.tokens - 1; return true end
-  return false
+  if b.tokens >= 1 then b.tokens = b.tokens - 1; return true, 0 end
+  local need = 1 - b.tokens
+  local ms = math.ceil((need / b.cap) * b.refill)
+  return false, ms
 end
 function Axiom.RateLimit(key, src) key = tostring(key)..':'..tostring(src or 0); return allow(key) end
 exports('RateLimit', function(key, src) return Axiom.RateLimit(key, src) end)
