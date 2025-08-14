@@ -7,7 +7,7 @@ rdr3_warning 'I acknowledge that this is a prerelease build of RedM, and I am aw
 name 'AxCore'
 author 'Exe & Svipe'
 version '0.4.0'
-description 'Axiom Core – Identity, 1:1 Character, Roles/Meta(KV), RPC, DB, Migrations, Metrics'
+description 'Axiom Core – Axiom Framework'
 
 shared_scripts {
   'shared/contracts.lua',
@@ -38,4 +38,5 @@ client_scripts {
   'client/rpc.lua',
   'client/main.lua'
 }
+
 
