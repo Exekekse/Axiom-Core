@@ -276,19 +276,20 @@ RegisterCommand('axiom:roles:add', function(src, args)
   local uid, err = resolveUid(target)
   if not uid then
     print('Fehler: '..(err or 'UID nicht gefunden'))
+    print('Usage: axiom:roles:add <uid|id|license|…> <role>')
     return
   end
   if ax:HasRole(uid, role) then
-    print('Rolle existiert bereits')
+    print('Role existiert bereits')
     return
   end
   local ok, e = ax:AddRole(uid, role)
   if not ok and e == 'E_ROLE_UNKNOWN' then
-    print('Rolle unbekannt. Erlaubt: '..table.concat(allowedRoles, ', '))
+    print('Role unbekannt. Erlaubt: '..table.concat(allowedRoles, ', '))
     return
   end
-  log.info('[SECURITY] Role %s %s -> %s', 'add', role, uid)
-  print(('[Axiom] Rolle %s für %s hinzugefügt'):format(role, uid))
+  log.info('[SECURITY] role.add uid=%s role=%s', uid, role)
+  print(('added role %s to uid=%s'):format(role, uid))
 end,false)
 
 RegisterCommand('axiom:roles:remove', function(src, args)
@@ -301,11 +302,12 @@ RegisterCommand('axiom:roles:remove', function(src, args)
   local uid, err = resolveUid(target)
   if not uid then
     print('Fehler: '..(err or 'UID nicht gefunden'))
+    print('Usage: axiom:roles:remove <uid|id|license|…> <role>')
     return
   end
   ax:RemoveRole(uid, role)
-  log.info('[SECURITY] Role %s %s -> %s', 'remove', role, uid)
-  print(('[Axiom] Rolle %s für %s entfernt'):format(role, uid))
+  log.info('[SECURITY] role.remove uid=%s role=%s', uid, role)
+  print(('removed role %s from uid=%s'):format(role, uid))
 end,false)
 
 RegisterCommand('axiom:roles:list', function(src, args)
@@ -318,12 +320,13 @@ RegisterCommand('axiom:roles:list', function(src, args)
   local uid, err = resolveUid(target)
   if not uid then
     print('Fehler: '..(err or 'UID nicht gefunden'))
+    print('Usage: axiom:roles:list <uid|id|license|…>')
     return
   end
   local roles = ax:ListRoles(uid) or {}
   if #roles==0 then
-    print('[Axiom] no roles')
+    print(('uid=%s roles: <none>'):format(uid))
   else
-    print(('[Axiom] Rollen für %s: %s'):format(uid, table.concat(roles, ', ')))
+    print(('uid=%s roles: %s'):format(uid, table.concat(roles, ', ')))
   end
 end,false)
