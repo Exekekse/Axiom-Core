@@ -5,7 +5,7 @@ lua54 'yes'
 rdr3_warning 'I acknowledge that this is a prerelease build of RedM, and I am aware my resources *will* become incompatible once RedM ships.'
 
 name 'AxCore'
-author 'Louis & Svipe'
+author 'Exe & Svipe'
 version '0.4.0'
 description 'Axiom Core – Identity, 1:1 Character, Roles/Meta(KV), RPC, DB, Migrations, Metrics'
 
@@ -38,3 +38,4 @@ client_scripts {
   'client/rpc.lua',
   'client/main.lua'
 }
+
