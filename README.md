@@ -16,18 +16,29 @@ Axiom Core ist das zentrale Skript des Axiom-Frameworks für RedM-Server. Es ste
 
 | Export/Event | Signatur | Beschreibung | Seit Version | Status |
 |--------------|----------|--------------|--------------|--------|
+| `RegisterModule` | `RegisterModule(def)` | Modul registrieren | 0.5.0 | stable |
+| `GetModule` | `GetModule(name)` | Modul abfragen | 0.5.0 | stable |
+| `ListModules` | `ListModules()` | Module auflisten | 0.5.0 | stable |
+| `On` | `On(event, fn)` | Event abonnieren | 0.5.0 | stable |
+| `Once` | `Once(event, fn)` | Event einmalig abonnieren | 0.5.0 | stable |
+| `Off` | `Off(event, idOrFn)` | Event abmelden | 0.5.0 | stable |
+| `Emit` | `Emit(event, ...)` | Event auslösen | 0.5.0 | stable |
 | `DbScalar` | `DbScalar(sql, params)` | Einfacher Wert aus Datenbank | 0.5.0 | stable |
 | `DbSingle` | `DbSingle(sql, params)` | Erste Zeile als Tabelle | 0.5.0 | stable |
 | `DbQuery` | `DbQuery(sql, params)` | Ergebnisliste | 0.5.0 | stable |
 | `DbExec` | `DbExec(sql, params)` | Änderungen ausführen | 0.5.0 | stable |
 | `DbTx` | `DbTx(fn)` | Transaktion ausführen | 0.5.0 | stable |
 | `DbHealth` | `DbHealth()` | DB-Verfügbarkeit prüfen | 0.5.0 | stable |
+| `RegisterMigration` | `RegisterMigration(mod, ver, steps)` | Migration registrieren | 0.5.0 | stable |
+| `RunMigrations` | `RunMigrations(mod?)` | Migrationen ausführen | 0.5.0 | stable |
 | `Log` | `Log(level, msg, ...)` | Logging mit Level | 0.5.0 | stable |
 | `SetLogLevel` | `SetLogLevel(level)` | Loglevel ändern | 0.5.0 | stable |
 | `Audit` | `Audit(action, target?, actor?, details?)` | Sicherheitslog | 0.5.0 | stable |
 | `RpcRegister` | `RpcRegister(name, fn)` | RPC registrieren | 0.5.0 | stable |
 | `RpcMetrics` | `RpcMetrics()` | RPC-Statistiken | 0.5.0 | stable |
 | `RateLimit` | `RateLimit(key, src)` | Ratelimit prüfen | 0.5.0 | stable |
+| `ErrOk` | `ErrOk(data?)` | Erfolgsantwort bauen | 0.5.0 | stable |
+| `ErrFail` | `ErrFail(code, msg?, data?)` | Fehlerantwort mit Logging | 0.5.0 | stable |
 | `GetIdent` | `GetIdent(src)` | Bevorzugten Identifier lesen | 0.5.0 | stable |
 | `GetUid` | `GetUid(src)` | UID eines Spielers | 0.5.0 | stable |
 | `GetSrc` | `GetSrc(uid)` | Quelle zu UID | 0.5.0 | stable |
@@ -45,10 +56,12 @@ Axiom Core ist das zentrale Skript des Axiom-Frameworks für RedM-Server. Es ste
 | `CharGetByUid` | `CharGetByUid(uid)` | Charakter zu UID | 0.5.0 | stable |
 | `CharGet` | `CharGet(cid)` | Charakter laden | 0.5.0 | stable |
 | `CharGetMeta` | `CharGetMeta(cid)` | Character-Meta lesen | 0.5.0 | stable |
+| `CharSetMeta` | `CharSetMeta(cid, meta)` | Komplettes Character-Meta setzen | 0.5.0 | stable |
 | `CharSetMetaKV` | `CharSetMetaKV(cid, k, v)` | Character-Meta setzen | 0.5.0 | stable |
 | `CharDelMetaKV` | `CharDelMetaKV(cid, k)` | Character-Meta löschen | 0.5.0 | stable |
 | Event `Axiom:character:ready` | `(cid, uid)` | Charakter bereit | 0.5.0 | stable |
 | Event `Axiom:core:moduleReady` | `(mod)` | Modul bereit | 0.5.0 | stable |
+| Event `Axiom:core:moduleStop` | `(mod)` | Modul gestoppt | 0.5.0 | stable |
 
 ## Deprecation Policy
 
