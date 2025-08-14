@@ -133,19 +133,10 @@ local function runModule(mod)
       if Axiom.audit then Axiom.audit('migration.start', mod..':'..m.version, 'system') end
       local ok, err = pcall(function() runFor(m.steps) end)
       if not ok then
-        local det = err
-        local msg, stage, sqlPrev, paramsKind
-        if type(det) == 'table' then
-          msg        = det.err or det.message or det.code or tostring(det)
-          stage      = det.stage or 'sql'
-          sqlPrev    = preview(det.sql)
-          paramsKind = det.params_kind or 'nil'
-        else
-          msg        = tostring(det)
-          stage      = 'sql'
-          sqlPrev    = preview(nil)
-          paramsKind = 'nil'
-        end
+        local msg = (type(err) == 'table' and (err.err or err.message)) or tostring(err)
+        local stage = (type(err) == 'table' and err.stage) or 'sql'
+        local sqlPrev = (type(err) == 'table' and preview(err.sql)) or preview(nil)
+        local paramsKind = (type(err) == 'table' and err.params_kind) or 'nil'
         log.error('Migration %s:%s FEHLER stage=%s sql_preview="%s" params=%s error=%s\n%s',
           mod, m.version, stage, sqlPrev, paramsKind, msg, debug.traceback())
         if Axiom.audit then Axiom.audit('migration.error', mod..':'..m.version, 'system', tostring(msg)) end
