@@ -21,3 +21,13 @@ local function allow(key)
 end
 function Axiom.RateLimit(key, src) key = tostring(key)..':'..tostring(src or 0); return allow(key) end
 exports('RateLimit', function(key, src) return Axiom.RateLimit(key, src) end)
+
+AddEventHandler('onResourceStart', function(res)
+  if res ~= GetCurrentResourceName() then return end
+  buckets = {}
+end)
+
+AddEventHandler('onResourceStop', function(res)
+  if res ~= GetCurrentResourceName() then return end
+  buckets = {}
+end)

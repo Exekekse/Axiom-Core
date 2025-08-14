@@ -6,7 +6,7 @@ rdr3_warning 'I acknowledge that this is a prerelease build of RedM, and I am aw
 
 name 'Axiom-Core'
 author 'Exe & Svipe'
-version '0.4.0'
+version '0.5.0'
 description 'Axiom Core – Axiom Framework'
 
 shared_scripts {

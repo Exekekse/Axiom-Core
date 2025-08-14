@@ -1,6 +1,6 @@
 Axiom = rawget(_G, 'Axiom') or {}
 Axiom.name    = 'axiom-core'
-Axiom.version = '0.4.0'
+Axiom.version = '0.5.0'
 
 Axiom.ev = {
   ModuleReady     = 'Axiom:core:moduleReady',
@@ -27,6 +27,7 @@ Axiom.ex = {
 
   -- RPC / RateLimit / Errors
   RpcRegister      = 'RpcRegister',
+  RpcMetrics       = 'RpcMetrics',
   RateLimit        = 'RateLimit',
   ErrOk            = 'ErrOk',
   ErrFail          = 'ErrFail',
@@ -37,6 +38,7 @@ Axiom.ex = {
   DbQuery          = 'DbQuery',
   DbExec           = 'DbExec',
   DbTx             = 'DbTx',
+  DbHealth         = 'DbHealth',
   RegisterMigration= 'RegisterMigration',
   RunMigrations    = 'RunMigrations',
 
@@ -49,6 +51,8 @@ Axiom.ex = {
   HasRole          = 'HasRole',
   AddRole          = 'AddRole',
   RemoveRole       = 'RemoveRole',
+  IsAdmin          = 'IsAdmin',
+  RequireRole      = 'RequireRole',
   PlayerGetMeta    = 'PlayerGetMeta',
   PlayerSetMetaKV  = 'PlayerSetMetaKV',
   PlayerDelMetaKV  = 'PlayerDelMetaKV',

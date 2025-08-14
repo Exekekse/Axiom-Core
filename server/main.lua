@@ -11,11 +11,17 @@ local Wait = Wait
 
 pcall(function() ax:SetLogLevel((cfg.log_level or 'info'):lower()) end)
 
+local running = true
 CreateThread(function()
   log.info('Core %s gestartet (Resource: %s) – LogLevel=%s, Heartbeat=%dms',
     Axiom.version, RES, (cfg.log_level or 'info'), hb)
   pcall(function() ax:RunMigrations('axiom-core') end)
-  while true do Wait(hb); log.trace('Heartbeat ok') end
+  while running do Wait(hb); log.trace('Heartbeat ok') end
+end)
+
+AddEventHandler('onResourceStop', function(res)
+  if res ~= RES then return end
+  running = false
 end)
 
 -- Identifier via Players service
@@ -253,16 +259,29 @@ RegisterCommand('axiom:uid', function(src)
   TriggerClientEvent('chat:addMessage', src, { args={'Axiom', ('UID: ^3%s'):format(uid)} })
 end,false)
 
--- Konsistenz-Check: jede uid genau einen cid
+-- Konsistenz-Check
 RegisterCommand('axiom:check', function(src)
+  if src ~= 0 then print('Nur Server-Konsole.') return end
   local missing = ax:DbQuery([[SELECT p.uid FROM ax_players p LEFT JOIN ax_characters c ON c.uid=p.uid WHERE c.uid IS NULL]]) or {}
   local extras  = ax:DbQuery([[SELECT uid, COUNT(*) AS n FROM ax_characters GROUP BY uid HAVING n <> 1]]) or {}
-  if src==0 then
-    print(('[Axiom] Consistency: missing_chars=%d, not_1to1=%d'):format(#missing,#extras))
-    if #missing>0 then print('Missing (uid):'); for _,r in ipairs(missing) do print('-',r.uid) end end
-    if #extras>0 then print('Not 1:1 (uid,n):'); for _,r in ipairs(extras) do print('-',r.uid,r.n) end end
-  else
-    TriggerClientEvent('chat:addMessage', src, { args={'Axiom', ('Consistency: missing=%d, not_1to1=%d'):format(#missing,#extras)} })
+  local orphanRoles = ax:DbQuery([[SELECT r.uid FROM ax_perm_roles r LEFT JOIN ax_players p ON p.uid=r.uid WHERE p.uid IS NULL]]) or {}
+  local orphanPMeta = ax:DbQuery([[SELECT m.uid FROM ax_player_meta m LEFT JOIN ax_players p ON p.uid=m.uid WHERE p.uid IS NULL]]) or {}
+  local orphanCMeta = ax:DbQuery([[SELECT m.cid FROM ax_character_meta m LEFT JOIN ax_characters c ON c.cid=m.cid WHERE c.cid IS NULL]]) or {}
+  local ok = (#missing==0 and #extras==0 and #orphanRoles==0 and #orphanPMeta==0 and #orphanCMeta==0)
+  local status = ok and 'OK' or 'NOK'
+  print(('[Axiom] Consistency %s: players_without_char=%d, chars_not_1to1=%d, orphan_roles=%d, orphan_player_meta=%d, orphan_character_meta=%d')
+    :format(status, #missing, #extras, #orphanRoles, #orphanPMeta, #orphanCMeta))
+  local function sample(rows, field)
+    local out = {}
+    for i=1,math.min(3,#rows) do out[#out+1] = rows[i][field] end
+    return table.concat(out, ',')
+  end
+  if not ok then
+    if #missing>0 then print('  missing uid:', sample(missing,'uid')) end
+    if #extras>0 then print('  not_1to1 uid:', sample(extras,'uid')) end
+    if #orphanRoles>0 then print('  orphan_roles uid:', sample(orphanRoles,'uid')) end
+    if #orphanPMeta>0 then print('  orphan_player_meta uid:', sample(orphanPMeta,'uid')) end
+    if #orphanCMeta>0 then print('  orphan_character_meta cid:', sample(orphanCMeta,'cid')) end
   end
 end,false)
 
@@ -288,7 +307,7 @@ RegisterCommand('axiom:roles:add', function(src, args)
     print('Role unbekannt. Erlaubt: '..table.concat(allowedRoles, ', '))
     return
   end
-  log.info('[SECURITY] role.add uid=%s role=%s', uid, role)
+  ax:Audit('role.add', uid, 'console', ('role=%s'):format(role))
   print(('added role %s to uid=%s'):format(role, uid))
 end,false)
 
@@ -306,7 +325,7 @@ RegisterCommand('axiom:roles:remove', function(src, args)
     return
   end
   ax:RemoveRole(uid, role)
-  log.info('[SECURITY] role.remove uid=%s role=%s', uid, role)
+  ax:Audit('role.remove', uid, 'console', ('role=%s'):format(role))
   print(('removed role %s from uid=%s'):format(role, uid))
 end,false)
 

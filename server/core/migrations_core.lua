@@ -66,3 +66,30 @@ RegisterMigration('axiom-core', '0013_character_meta', [[
     KEY ix_cmeta_k (k)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ]])
+
+-- 0014: Indexpflege
+RegisterMigration('axiom-core', '0014_indexes', [[
+  SET @sql := IF(
+    (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='ax_perm_roles' AND index_name='ix_uid') = 0,
+    'ALTER TABLE ax_perm_roles ADD INDEX ix_uid (uid)',
+    'SELECT 1'
+  ); PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+  SET @sql := IF(
+    (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='ax_perm_roles' AND index_name='ix_role') = 0,
+    'ALTER TABLE ax_perm_roles ADD INDEX ix_role (role)',
+    'SELECT 1'
+  ); PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+  SET @sql := IF(
+    (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='ax_player_meta' AND index_name='ix_uid') = 0,
+    'ALTER TABLE ax_player_meta ADD INDEX ix_uid (uid)',
+    'SELECT 1'
+  ); PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+  SET @sql := IF(
+    (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='ax_character_meta' AND index_name='ix_cid') = 0,
+    'ALTER TABLE ax_character_meta ADD INDEX ix_cid (cid)',
+    'SELECT 1'
+  ); PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+]])

@@ -44,6 +44,29 @@ AddEventHandler('playerJoining', function()
 end)
 AddEventHandler('playerDropped', function() local src=source; local uid=uidBySrc[src]; uidBySrc[src]=nil; if uid then srcByUid[uid]=nil end end)
 
+AddEventHandler('onResourceStart', function(res)
+  if res ~= RES then return end
+  uidBySrc, srcByUid = {}, {}
+  for _, sid in ipairs(GetPlayers()) do
+    local src = tonumber(sid)
+    local kind, val = pickIdentifier(src)
+    if kind then
+      local row = ax:DbSingle('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1', {kind, val})
+      local uid = row and row.uid
+      if uid then
+        setMap(src, uid)
+        local cid = ax:CharEnsure(uid, {})
+        TriggerEvent(Axiom.ev.CharacterReady, cid, uid)
+      end
+    end
+  end
+end)
+
+AddEventHandler('onResourceStop', function(res)
+  if res ~= RES then return end
+  uidBySrc, srcByUid = {}, {}
+end)
+
 -- Rollen in separater Tabelle (ax_perm_roles)
 local function hasRole(uid, role)
   local r = ax:DbScalar(
@@ -62,7 +85,6 @@ local function addRole(uid, role)
     'INSERT IGNORE INTO ax_perm_roles (uid, role) VALUES (?, ?)',
     { uid, role }
   )
-  if Axiom.audit then Axiom.audit('role.add', 'uid=%s role=%s', uid, role) end
   return true
 end
 
@@ -71,7 +93,6 @@ local function removeRole(uid, role)
     'DELETE FROM ax_perm_roles WHERE uid = ? AND role = ?',
     { uid, role }
   )
-  if Axiom.audit then Axiom.audit('role.remove', 'uid=%s role=%s', uid, role) end
   return true
 end
 
@@ -103,6 +124,9 @@ exports('RemoveRole',function(uid, role) return removeRole(uid, role) end)
 exports('ListRoles', listRoles)
 exports('RoleAllowed', roleAllowed)
 exports('IsAdmin', function(uid) return hasRole(uid, 'admin') end)
+exports('RequireRole', function(uid, role)
+  return hasRole(uid, role) and { ok=true } or { ok=false, code='E_FORBIDDEN' }
+end)
 
 exports('PlayerGetMeta',   playerGetMeta)
 exports('PlayerSetMetaKV', playerSetMetaKV)
