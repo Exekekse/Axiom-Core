@@ -55,33 +55,50 @@ local function need()
   return true
 end
 
+local function ensureSql(q)
+  if type(q) ~= 'string' then error(('E_DB_BADSQL: expected string, got %s'):format(type(q))) end
+end
+
+local function ensureParams(p)
+  if p ~= nil and type(p) ~= 'table' then error(('E_DB_BADPARAMS: expected table, got %s'):format(type(p))) end
+end
+
+local function run(op, q, p, fn)
+  ensureSql(q); ensureParams(p)
+  local t0 = GetGameTimer()
+  local ok, res = pcall(fn, q, p or {})
+  local ms = GetGameTimer() - t0
+  record(op, q, ms)
+  if not ok then
+    local err = tostring(res)
+    log.error('[DB][%s] %s sql="%s" params=%s', op, err, fingerprint(q), type(p))
+    error(err)
+  end
+  return res
+end
+
+local mysql = {
+  scalar = function(q,p) return MySQL.scalar.await(q,p) end,
+  single = function(q,p) return MySQL.single.await(q,p) end,
+  query  = function(q,p) return MySQL.query.await(q,p)  end,
+  exec   = function(q,p) return MySQL.update.await(q,p) end,
+}
+
 local function scalar(q, p)
   if not need() then return nil end
-  local t0 = GetGameTimer()
-  local res = MySQL.scalar.await(q, p or {})
-  record('scalar', q, GetGameTimer() - t0)
-  return res
+  return run('scalar', q, p, mysql.scalar)
 end
 local function single(q, p)
   if not need() then return nil end
-  local t0 = GetGameTimer()
-  local res = MySQL.single.await(q, p or {})
-  record('single', q, GetGameTimer() - t0)
-  return res
+  return run('single', q, p, mysql.single)
 end
 local function query(q, p)
   if not need() then return nil end
-  local t0 = GetGameTimer()
-  local res = MySQL.query.await(q, p or {})
-  record('query', q, GetGameTimer() - t0)
-  return res
+  return run('query', q, p, mysql.query)
 end
 local function exec(q, p)
   if not need() then return 0 end
-  local t0 = GetGameTimer()
-  local res = MySQL.update.await(q, p or {})
-  record('exec', q, GetGameTimer() - t0)
-  return res
+  return run('exec', q, p, mysql.exec)
 end
 
 local function tx(fn)
@@ -90,15 +107,22 @@ local function tx(fn)
   MySQL.update.await('START TRANSACTION')
   local ok, err = pcall(function()
     local sql = {
-      exec   = function(q, p) return MySQL.update.await(q, p or {}) end,
-      query  = function(q, p) return MySQL.query.await(q, p or {}) end,
-      single = function(q, p) return MySQL.single.await(q, p or {}) end,
-      scalar = function(q, p) return MySQL.scalar.await(q, p or {}) end,
+      exec   = function(q, p) return run('tx.exec', q, p, mysql.exec) end,
+      query  = function(q, p) return run('tx.query', q, p, mysql.query) end,
+      single = function(q, p) return run('tx.single', q, p, mysql.single) end,
+      scalar = function(q, p) return run('tx.scalar', q, p, mysql.scalar) end,
     }
     return fn(sql)
   end)
-  if not ok then MySQL.update.await('ROLLBACK'); record('tx', 'tx', GetGameTimer()-t0); return false, tostring(err) end
-  MySQL.update.await('COMMIT'); record('tx', 'tx', GetGameTimer()-t0); return true
+  if not ok then
+    MySQL.update.await('ROLLBACK')
+    record('tx', 'tx', GetGameTimer()-t0)
+    log.error('[DB][tx] %s', tostring(err))
+    return false, tostring(err)
+  end
+  MySQL.update.await('COMMIT')
+  record('tx', 'tx', GetGameTimer()-t0)
+  return true
 end
 
 exports('DbScalar', scalar)
