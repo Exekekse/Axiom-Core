@@ -78,6 +78,13 @@ local function runFor(mig)
     if not ok then error({ stage = 'sql', sql = mig, params_kind = 'nil', err = tostring(res) }) end
     return
   elseif t == 'table' then
+    local indexable = pcall(function() return mig[1] end)
+    if not indexable then
+      local ctx = makeCtx()
+      local ok, err = pcall(mig, ctx)
+      if not ok then error({ stage = 'fn', sql = nil, params_kind = 'nil', err = tostring(err) }) end
+      return
+    end
     if type(mig.fn) == 'function' then
       runFor(mig.fn)
       return
