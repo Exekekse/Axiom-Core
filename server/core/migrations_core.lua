@@ -79,18 +79,16 @@ RegisterMigration('axiom-core', '0014_indexes', function(ctx)
     { table = 'ax_player_meta',    index = 'ix_uid', column = 'uid' },
     { table = 'ax_character_meta', index = 'ix_cid', column = 'cid' },
   }
-  ctx.tx(function(tx)
-    for _, ix in ipairs(indexes) do
-      local exists = tx.scalar(
-        'SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name=?',
-        { ix.table, ix.index }
-      ) or 0
-      if exists == 0 then
-        tx.exec(('ALTER TABLE %s ADD INDEX %s (%s)'):format(ix.table, ix.index, ix.column))
-        log.info('Migration 0014: created index %s on %s(%s)', ix.index, ix.table, ix.column)
-      else
-        log.info('Migration 0014: index %s already present', ix.index)
-      end
+  for _, ix in ipairs(indexes) do
+    local exists = ctx.scalar(
+      'SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name=?',
+      { ix.table, ix.index }
+    ) or 0
+    if exists == 0 then
+      ctx.exec(('ALTER TABLE %s ADD INDEX %s (%s)'):format(ix.table, ix.index, ix.column))
+      log.info('Migration 0014: created index %s on %s(%s)', ix.index, ix.table, ix.column)
+    else
+      log.info('Migration 0014: index %s already present', ix.index)
     end
-  end)
+  end
 end)
