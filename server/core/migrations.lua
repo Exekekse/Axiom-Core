@@ -38,10 +38,18 @@ local function runFor(mod)
     if not applied(mod, m.version) then
       log.info('Migration %s:%s wird angewendet …', mod, m.version)
       if Axiom.audit then Axiom.audit('migration.start', mod..':'..m.version, 'system') end
-      local ok, err = pcall(function() DbExec(m.sql) end)
+      local ok, err = pcall(function()
+        if type(m.sql) == 'function' then
+          return m.sql()
+        else
+          return DbExec(m.sql)
+        end
+      end)
       if not ok then
-        log.error('Migration %s:%s FEHLER: %s', mod, m.version, tostring(err))
-        if Axiom.audit then Axiom.audit('migration.error', mod..':'..m.version, 'system', tostring(err)) end
+        local msg = err
+        if type(err) == 'table' then msg = err.message or err.code or tostring(err) end
+        log.error('Migration %s:%s FEHLER: %s', mod, m.version, tostring(msg))
+        if Axiom.audit then Axiom.audit('migration.error', mod..':'..m.version, 'system', tostring(msg)) end
         return
       end
       mark(mod, m.version)

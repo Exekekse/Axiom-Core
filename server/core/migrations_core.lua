@@ -1,6 +1,9 @@
 local RES = GetCurrentResourceName()
 local ax  = exports[RES]
 local RegisterMigration = function(...) return ax:RegisterMigration(...) end
+local DbScalar = function(q,p) return ax:DbScalar(q,p) end
+local DbExec   = function(q,p) return ax:DbExec(q,p) end
+local DbTx     = function(fn) return ax:DbTx(fn) end
 
 -- 0001: Spieler (kein JSON-Feld)
 RegisterMigration('axiom-core', '0001_players', [[
@@ -68,28 +71,24 @@ RegisterMigration('axiom-core', '0013_character_meta', [[
 ]])
 
 -- 0014: Indexpflege
-RegisterMigration('axiom-core', '0014_indexes', [[
-  SET @sql := IF(
-    (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='ax_perm_roles' AND index_name='ix_uid') = 0,
-    'ALTER TABLE ax_perm_roles ADD INDEX ix_uid (uid)',
-    'SELECT 1'
-  ); PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-  SET @sql := IF(
-    (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='ax_perm_roles' AND index_name='ix_role') = 0,
-    'ALTER TABLE ax_perm_roles ADD INDEX ix_role (role)',
-    'SELECT 1'
-  ); PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-  SET @sql := IF(
-    (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='ax_player_meta' AND index_name='ix_uid') = 0,
-    'ALTER TABLE ax_player_meta ADD INDEX ix_uid (uid)',
-    'SELECT 1'
-  ); PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-
-  SET @sql := IF(
-    (SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='ax_character_meta' AND index_name='ix_cid') = 0,
-    'ALTER TABLE ax_character_meta ADD INDEX ix_cid (cid)',
-    'SELECT 1'
-  ); PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
-]])
+RegisterMigration('axiom-core', '0014_indexes', function()
+  local log = Axiom.log or { info=print }
+  local indexes = {
+    { table='ax_perm_roles',    index='ix_uid', column='uid'  },
+    { table='ax_perm_roles',    index='ix_role', column='role' },
+    { table='ax_player_meta',   index='ix_uid', column='uid'  },
+    { table='ax_character_meta',index='ix_cid', column='cid'  },
+  }
+  local ok, err = DbTx(function(sql)
+    for _, ix in ipairs(indexes) do
+      local exists = sql.scalar([[SELECT COUNT(1) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?]], {ix.table, ix.index}) or 0
+      if exists == 0 then
+        sql.exec(('ALTER TABLE %s ADD INDEX %s (%s)'):format(ix.table, ix.index, ix.column))
+        log.info('Migration 0014: created index %s on %s(%s)', ix.index, ix.table, ix.column)
+      else
+        log.info('Migration 0014: index %s already present', ix.index)
+      end
+    end
+  end)
+  if not ok then error({ code = 'E_DB', message = err }) end
+end)
