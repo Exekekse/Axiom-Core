@@ -37,9 +37,16 @@ local function runFor(mod)
   for _,m in ipairs(list) do
     if not applied(mod, m.version) then
       log.info('Migration %s:%s wird angewendet …', mod, m.version)
+      if Axiom.audit then Axiom.audit('migration.start', mod..':'..m.version, 'system') end
       local ok, err = pcall(function() DbExec(m.sql) end)
-      if not ok then log.error('Migration %s:%s FEHLER: %s', mod, m.version, tostring(err)); return end
-      mark(mod, m.version); log.info('Migration %s:%s OK', mod, m.version)
+      if not ok then
+        log.error('Migration %s:%s FEHLER: %s', mod, m.version, tostring(err))
+        if Axiom.audit then Axiom.audit('migration.error', mod..':'..m.version, 'system', tostring(err)) end
+        return
+      end
+      mark(mod, m.version)
+      if Axiom.audit then Axiom.audit('migration.done', mod..':'..m.version, 'system') end
+      log.info('Migration %s:%s OK', mod, m.version)
     end
   end
 end

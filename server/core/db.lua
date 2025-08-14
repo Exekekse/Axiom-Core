@@ -39,3 +39,11 @@ exports('DbSingle', single)
 exports('DbQuery',  query)
 exports('DbExec',   exec)
 exports('DbTx',     tx)
+
+local function health()
+  if not need() then return false end
+  local ok, res = pcall(function() return MySQL.scalar.await('SELECT 1', {}) end)
+  return ok and res == 1
+end
+
+exports('DbHealth', health)

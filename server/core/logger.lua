@@ -17,9 +17,12 @@ local function out(lvl, msg, ...)
   print(line)
 end
 
-function Axiom.audit(action, fmt, ...)
-  local msg = fmt and string.format(fmt, ...) or ''
-  print(('[Axiom][AUDIT] %-16s %s'):format(tostring(action), msg))
+function Axiom.audit(action, target, actor, details)
+  local ts = os.date('!%Y-%m-%dT%H:%M:%SZ')
+  local msg = ('[SECURITY] action=%s target=%s actor=%s time=%s'):format(
+    tostring(action), tostring(target or '-'), tostring(actor or '-'), ts)
+  if details and details ~= '' then msg = msg .. ' ' .. details end
+  out('info', msg)
 end
 
 Axiom.log = setmetatable({}, {
@@ -30,4 +33,4 @@ Axiom.log = setmetatable({}, {
 
 exports(Axiom.ex.Log, function(level, msg, ...) out(level, msg, ...) end)
 exports(Axiom.ex.SetLogLevel, function(levelName) setLevel(levelName) end)
-exports(Axiom.ex.Audit, function(action, fmt, ...) Axiom.audit(action, fmt, ...) end)
+exports(Axiom.ex.Audit, function(action, target, actor, details) Axiom.audit(action, target, actor, details) end)
