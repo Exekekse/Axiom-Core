@@ -4,6 +4,7 @@ local cfg  = Axiom.config or {}
 local hb   = tonumber(cfg.heartbeat_ms) or 60000
 local RES  = GetCurrentResourceName()
 local ax   = exports[RES]
+local CORE = 'Axiom-Core'
 local getTime = GetGameTimer
 local Wait = Wait
 
@@ -120,34 +121,73 @@ local function smokeAllowed(src)
   return ax:HasRole(uid,'admin') or false
 end
 
+local function trim(s) return (s:gsub('^%s+', ''):gsub('%s+$', '')) end
+local function splitFirst(s, sep)
+  local a,b = s:find(sep, 1, true); if not a then return s, nil end
+  return s:sub(1, a-1), s:sub(b+1)
+end
+local function isUid(v) return type(v)=='string' and #v==10 and v:match('^[A-Za-z0-9]+$') end
+local function isHex(v) return type(v)=='string' and v:match('^[0-9a-fA-F]+$') end
+
 local function resolveTargetUid(target)
-  if not target or target == '' then return nil, 'kein Ziel' end
+  target = trim(target or '')
+  if target == '' then return nil, 'invalid target: empty' end
 
-  -- UID with optional prefix or bare 10 alnum
-  local u = target:match('^uid:([A-Za-z0-9]+)$')
-            or target:match('^([A-Za-z0-9]{10})$')
-  if u then return u end
+  -- bare UID
+  if isUid(target) then return target end
 
-  -- License hash with optional prefix or bare 32-64 hex
-  local lic = target:match('^license:([0-9A-Fa-f]+)$')
-              or target:match('^([0-9A-Fa-f]{32,64})$')
-  if lic then
-    local uid = ensureUidFor('license', lic:lower(), '')
-    if uid then return uid end
-    return nil, 'Lizenz nicht gefunden'
+  -- bare Server-ID
+  if target:match('^%d+$') then
+    local sid = tonumber(target)
+    if sid and sid >= 1 and sid <= 4096 then
+      local uid = exports[CORE]:GetUid(sid)
+      if not uid then return nil, ('no uid for server id %d (offline?)'):format(sid) end
+      return uid
+    end
   end
 
-  -- Numeric server ID with optional prefix or bare digits
-  local sid = target:match('^id:(%d+)$')
-              or target:match('^(%d+)$')
-  if sid then
-    local srcId = tonumber(sid)
-    local uid = ax:GetUid(srcId)
-    if not uid then return nil, 'Spieler nicht online' end
+  -- bare license (hex 32–64)
+  if #target >= 32 and #target <= 64 and isHex(target) then
+    local row = exports[CORE]:DbSingle(
+      'SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1',
+      { 'license', target:lower() }
+    )
+    if not row or not row.uid then
+      return nil, ('no player found for license:%s'):format(target)
+    end
+    return row.uid
+  end
+
+  -- prefixierte Formen
+  local kind, value = splitFirst(target, ':')
+  if not value then return nil, 'invalid target format' end
+  if value:find(':', 1, true) then
+    local k2, v2 = splitFirst(value, ':'); if k2 == kind then value = v2 end
+  end
+
+  kind = kind:lower()
+  if kind == 'uid' then
+    if not isUid(value) then return nil, 'invalid uid' end
+    return value
+  elseif kind == 'id' then
+    if not value:match('^%d+$') then return nil, 'invalid server id' end
+    local sid = tonumber(value)
+    local uid = exports[CORE]:GetUid(sid)
+    if not uid then return nil, ('no uid for server id %d (offline?)'):format(sid) end
     return uid
+  else
+    local allowed = { license=true, steam=true, rockstar=true, fivem=true, discord=true, xbl=true, live=true }
+    if not allowed[kind] then return nil, 'unknown identifier kind' end
+    if value == '' then return nil, 'missing identifier value' end
+    local row = exports[CORE]:DbSingle(
+      'SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1',
+      { kind, value }
+    )
+    if not row or not row.uid then
+      return nil, ('no player found for %s:%s'):format(kind, value)
+    end
+    return row.uid
   end
-
-  return nil, 'Ungültiges Ziel'
 end
 
 -- Commands
@@ -255,7 +295,7 @@ RegisterCommand('axiom:roles:list', function(src, args)
   if not target then print('Usage: axiom:roles:list <target>') return end
   local uid, err = resolveTargetUid(target)
   if not uid then print('Fehler: '..(err or 'UID nicht gefunden')) return end
-  local roles = ax:GetRoles(uid) or {}
+  local roles = ax:ListRoles(uid) or {}
   if #roles==0 then
     print(('[Axiom] %s hat keine Rollen'):format(uid))
   else
