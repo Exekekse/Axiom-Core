@@ -16,7 +16,8 @@ local running = true
 CreateThread(function()
   log.info('Core %s gestartet (Resource: %s) – LogLevel=%s, Heartbeat=%dms',
     Axiom.version, RES, (cfg.log_level or 'info'), hb)
-  pcall(function() ax:RunMigrations('axiom-core') end)
+  local ok, err = pcall(function() ax:RunMigrations('axiom-core') end)
+  if not ok then log.error('RunMigrations failed: %s\n%s', tostring(err), debug.traceback()) end
   while running do Wait(hb); log.trace('Heartbeat ok') end
 end)
 
