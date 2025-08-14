@@ -121,22 +121,32 @@ local function smokeAllowed(src)
 end
 
 local function resolveTargetUid(target)
-  if not target or target=='' then return nil, 'kein Ziel' end
+  if not target or target == '' then return nil, 'kein Ziel' end
+
+  -- UID with optional prefix or bare 10 alnum
   local u = target:match('^uid:([A-Za-z0-9]+)$')
+            or target:match('^([A-Za-z0-9]{10})$')
   if u then return u end
-  local lic = target:match('^license:(.+)$')
+
+  -- License hash with optional prefix or bare 32-64 hex
+  local lic = target:match('^license:([0-9A-Fa-f]+)$')
+              or target:match('^([0-9A-Fa-f]{32,64})$')
   if lic then
-    local uid = ensureUidFor('license', lic, '')
+    local uid = ensureUidFor('license', lic:lower(), '')
     if uid then return uid end
     return nil, 'Lizenz nicht gefunden'
   end
+
+  -- Numeric server ID with optional prefix or bare digits
   local sid = target:match('^id:(%d+)$')
+              or target:match('^(%d+)$')
   if sid then
     local srcId = tonumber(sid)
     local uid = ax:GetUid(srcId)
     if not uid then return nil, 'Spieler nicht online' end
     return uid
   end
+
   return nil, 'Ungültiges Ziel'
 end
 
