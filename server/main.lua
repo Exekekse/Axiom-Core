@@ -100,6 +100,26 @@ AddEventHandler('playerDropped', function()
   if not ok then log.warn('playerDropped update error: %s', tostring(err)) end
 end)
 
+-- Smoke-Test Allowlist aus ENV
+local ALLOW_SMOKE = {}
+do
+  local raw = os.getenv('ADMIN_UIDS_ALLOW_SMOKE')
+  if raw and raw ~= '' then
+    local ok, arr = pcall(json.decode, raw)
+    if ok and type(arr)=='table' then for _,u in ipairs(arr) do ALLOW_SMOKE[u]=true end end
+  end
+end
+
+local function smokeAllowed(src)
+  if src==0 then return true end
+  local kind,value = getPreferredIdent(src); if not kind then return false end
+  local row = ax:DbSingle('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1',{kind,value})
+  local uid = row and row.uid
+  if not uid then return false end
+  if ALLOW_SMOKE[uid] then return true end
+  return ax:HasRole(uid,'admin') or false
+end
+
 -- Commands
 RegisterCommand('axiom:ping', function(src) if src==0 then print('[Axiom] pong (server console)') else TriggerClientEvent('chat:addMessage',src,{args={'Axiom','^2pong'}}) end end,false)
 
@@ -108,6 +128,28 @@ RegisterCommand('axiom:modules', function(src)
   local text = (#list==0) and 'keine Module registriert' or table.concat((function() local t={}; for _,m in ipairs(list) do t[#t+1]=('%s (%s)'):format(m.name, m.version or '0.0.0') end; return t end)(), ', ')
   if src==0 then print('[Axiom] Module:', text) else TriggerClientEvent('chat:addMessage', src, { args={'Axiom', text} }) end
 end, false)
+
+RegisterCommand('axiom:dbtest', function(src, args)
+  if args[1]=='smoke' then
+    if not smokeAllowed(src) then
+      local msg='smoke SKIPPED'
+      if src==0 then print(msg) else TriggerClientEvent('chat:addMessage',src,{args={'Axiom',msg}}) end
+      return
+    end
+    local note=('smoke-%d'):format(math.random(100000,999999))
+    ax:DbExec('CREATE TABLE IF NOT EXISTS ax_smoke (id INT AUTO_INCREMENT PRIMARY KEY, note VARCHAR(50), created TIMESTAMP DEFAULT CURRENT_TIMESTAMP)')
+    local okIns = ax:DbExec('INSERT INTO ax_smoke (note) VALUES (?)', {note}) > 0
+    local row = ax:DbSingle('SELECT id, note FROM ax_smoke WHERE note=? ORDER BY id DESC LIMIT 1', {note}) or {}
+    local msg = (okIns and row.note==note) and ('smoke id=%s note=%s'):format(row.id, row.note) or 'smoke NOK'
+    if src==0 then print(msg) else TriggerClientEvent('chat:addMessage',src,{args={'Axiom',msg}}) end
+    return
+  end
+  local t0=getTime()
+  local ok,res=pcall(function() return ax:DbScalar('SELECT 1',{}) end)
+  local dt=getTime()-t0
+  local msg=(ok and res==1) and ('[DB] Health OK (%dms)'):format(dt) or '[DB] Health NOK'
+  if src==0 then print(msg) else TriggerClientEvent('chat:addMessage',src,{args={'Axiom',msg}}) end
+end,true)
 
 RegisterCommand('axiom:health', function(src)
   local dbOK=false; local ok,res=pcall(function() return ax:DbScalar('SELECT 1',{}) end); dbOK=ok and (res==1)
