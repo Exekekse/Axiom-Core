@@ -5,6 +5,7 @@ local hb   = tonumber(cfg.heartbeat_ms) or 60000
 local RES  = GetCurrentResourceName()
 local ax   = exports[RES]
 local CORE = 'Axiom-Core'
+local allowedRoles = (cfg.roles and cfg.roles.allow) or {}
 local getTime = GetGameTimer
 local Wait = Wait
 
@@ -129,7 +130,7 @@ end
 local function isUid(v) return type(v)=='string' and #v==10 and v:match('^[A-Za-z0-9]+$') end
 local function isHex(v) return type(v)=='string' and v:match('^[0-9a-fA-F]+$') end
 
-local function resolveTargetUid(target)
+local function resolveUid(target)
   target = trim(target or '')
   if target == '' then return nil, 'invalid target: empty' end
 
@@ -139,11 +140,12 @@ local function resolveTargetUid(target)
   -- bare Server-ID
   if target:match('^%d+$') then
     local sid = tonumber(target)
-    if sid and sid >= 1 and sid <= 4096 then
-      local uid = exports[CORE]:GetUid(sid)
-      if not uid then return nil, ('no uid for server id %d (offline?)'):format(sid) end
-      return uid
+    if not sid or sid < 1 or sid > 4096 then
+      return nil, 'invalid server id'
     end
+    local uid = exports[CORE]:GetUid(sid)
+    if not uid then return nil, ('no uid for server id %d (offline?)'):format(sid) end
+    return uid
   end
 
   -- bare license (hex 32–64)
@@ -160,7 +162,7 @@ local function resolveTargetUid(target)
 
   -- prefixierte Formen
   local kind, value = splitFirst(target, ':')
-  if not value then return nil, 'invalid target format' end
+  if not value then return nil, 'invalid target' end
   if value:find(':', 1, true) then
     local k2, v2 = splitFirst(value, ':'); if k2 == kind then value = v2 end
   end
@@ -266,39 +268,64 @@ RegisterCommand('axiom:check', function(src)
 end,false)
 
 RegisterCommand('axiom:roles:add', function(src, args)
-  if src~=0 then print('Nur Server-Konsole.') return end
+  if src ~= 0 then return end
   local target, role = args[1], args[2]
-  if not target or not role then print('Usage: axiom:roles:add <target> <role>') return end
-  local uid, err = resolveTargetUid(target)
-  if not uid then print('Fehler: '..(err or 'UID nicht gefunden')) return end
-  if ax:HasRole(uid, role) then print('Rolle existiert bereits') return end
-  ax:AddRole(uid, role)
-  log.info('[SECURITY] Role %s %s -> %s', 'add', role, uid)
-  print(('[Axiom] Rolle %s für %s hinzugefügt'):format(role, uid))
+  if not target or not role then
+    print('Usage: axiom:roles:add <uid|id|license|…> <role>')
+    return
+  end
+  local uid, err = resolveUid(target)
+  if not uid then
+    print('Fehler: '..(err or 'UID nicht gefunden'))
+    print('Usage: axiom:roles:add <uid|id|license|…> <role>')
+    return
+  end
+  if ax:HasRole(uid, role) then
+    print('role already assigned')
+    return
+  end
+  local ok, e = ax:AddRole(uid, role)
+  if not ok and e == 'E_ROLE_UNKNOWN' then
+    print('Role unbekannt. Erlaubt: '..table.concat(allowedRoles, ', '))
+    return
+  end
+  print(('added role %s to uid=%s'):format(role, uid))
 end,false)
 
 RegisterCommand('axiom:roles:remove', function(src, args)
-  if src~=0 then print('Nur Server-Konsole.') return end
+  if src ~= 0 then return end
   local target, role = args[1], args[2]
-  if not target or not role then print('Usage: axiom:roles:remove <target> <role>') return end
-  local uid, err = resolveTargetUid(target)
-  if not uid then print('Fehler: '..(err or 'UID nicht gefunden')) return end
-  if not ax:HasRole(uid, role) then print('Rolle nicht vorhanden') return end
+  if not target or not role then
+    print('Usage: axiom:roles:remove <uid|id|license|…> <role>')
+    return
+  end
+  local uid, err = resolveUid(target)
+  if not uid then
+    print('Fehler: '..(err or 'UID nicht gefunden'))
+    print('Usage: axiom:roles:remove <uid|id|license|…> <role>')
+    return
+  end
   ax:RemoveRole(uid, role)
-  log.info('[SECURITY] Role %s %s -> %s', 'remove', role, uid)
-  print(('[Axiom] Rolle %s für %s entfernt'):format(role, uid))
+  print(('removed role %s from uid=%s'):format(role, uid))
 end,false)
 
 RegisterCommand('axiom:roles:list', function(src, args)
-  if src~=0 then print('Nur Server-Konsole.') return end
+  if src ~= 0 then return end
   local target = args[1]
-  if not target then print('Usage: axiom:roles:list <target>') return end
-  local uid, err = resolveTargetUid(target)
-  if not uid then print('Fehler: '..(err or 'UID nicht gefunden')) return end
+  if not target then
+    print('Usage: axiom:roles:list <uid|id|license|…>')
+    return
+  end
+  local uid, err = resolveUid(target)
+  if not uid then
+    print('Fehler: '..(err or 'UID nicht gefunden'))
+    print('Usage: axiom:roles:list <uid|id|license|…>')
+    return
+  end
   local roles = ax:ListRoles(uid) or {}
-  if #roles==0 then
-    print(('[Axiom] %s hat keine Rollen'):format(uid))
+  if #roles == 0 then
+    print('no roles')
   else
-    print(('[Axiom] Rollen für %s: %s'):format(uid, table.concat(roles, ', ')))
+    print(('roles for %s: %s'):format(uid, table.concat(roles, ', ')))
   end
 end,false)
