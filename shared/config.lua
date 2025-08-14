@@ -4,10 +4,18 @@ Axiom.config = {
   log_level     = 'info',
   heartbeat_ms  = 60000,
 
-  -- Identifier-Reihenfolge (welcher gespeichert wird)
+  -- Identifier-Policy
   identifiers = {
-    preferred = { 'license', 'steam', 'rockstar', 'fivem', 'discord', 'xbl', 'live', 'ip' },
+    -- Primärer Identifier (Quelle der Wahrheit)
+    primary   = 'license',
+    -- Sekundäre Identifier in deterministischer Reihenfolge
+    secondary = { 'steam', 'rockstar', 'fivem', 'discord', 'xbl', 'live', 'ip' },
     store_kind = true,
+    auto_link = {
+      enabled = true,   -- zusätzliche Identifier beim Connect sammeln
+      shadow  = true,   -- nur loggen, nicht automatisch verknüpfen
+      types   = {},     -- opt-in je Identifier-Typ (z.B. {steam=true})
+    },
   },
 
   -- Maintenance: Admin-Rolle darf rein, plus optional Allowlist

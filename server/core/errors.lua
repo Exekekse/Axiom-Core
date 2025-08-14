@@ -1,13 +1,32 @@
 Axiom = Axiom or {}
 Axiom.err = Axiom.err or {}
 
+-- Fehler-Codes (Taxonomie)
+Axiom.err.codes = {
+  NOUID      = 'E_NOUID',
+  BANNED     = 'E_BANNED',
+  CONFLICT   = 'E_CONFLICT',
+  EXISTS     = 'E_EXISTS',
+  RATE_LIMIT = 'E_RATE_LIMIT',
+  TX         = 'E_TX',
+  SCHEMA     = 'E_SCHEMA',
+  INVALID    = 'E_INVALID',
+  FORBIDDEN  = 'E_FORBIDDEN',
+  UNKNOWN    = 'E_UNKNOWN',
+}
+
 -- Ringpuffer für die letzten Fehler (max 50)
 local MAX = 50
 local ring = {}
 local head, size = 0, 0
 local counts = {}
 
-local function push(scope, code, msg, data)
+local function newCid()
+  return ('%08x'):format(math.random(0, 0xFFFFFFFF))
+end
+Axiom.err.newCid = newCid
+
+local function push(scope, code, msg, data, cid)
   head = (head % MAX) + 1
   ring[head] = {
     ts = os.time(),
@@ -15,6 +34,7 @@ local function push(scope, code, msg, data)
     code = code or 'error',
     msg = msg or '',
     data = data,
+    cid  = cid,
   }
   counts[code or 'error'] = (counts[code or 'error'] or 0) + 1
   if size < MAX then size = size + 1 end
@@ -36,14 +56,31 @@ local function countsCopy()
   return out
 end
 
-function Axiom.err.ok(data)  return { ok = true, code = nil, data = data } end
+function Axiom.err.ok(data)
+  return { ok = true, data = data }
+end
+
 function Axiom.err.fail(code, msg, data)
-  push('core', code, msg, data)
-  return { ok = false, code = code or 'E_UNKNOWN', msg = msg or '', data = data }
+  local cid = newCid()
+  push('core', code, msg, data, cid)
+  Axiom.metrics = Axiom.metrics or {}
+  local errm = Axiom.metrics.error or {}
+  errm[code or Axiom.err.codes.UNKNOWN] = (errm[code or Axiom.err.codes.UNKNOWN] or 0) + 1
+  Axiom.metrics.error = errm
+  return {
+    ok = false,
+    error = {
+      code = code or Axiom.err.codes.UNKNOWN,
+      message = msg or '',
+      details = data,
+      cid = cid,
+    },
+  }
 end
 
 exports('ErrOk',     function(data)                      return Axiom.err.ok(data) end)
 exports('ErrFail',   function(code, msg, data)           return Axiom.err.fail(code, msg, data) end)
-exports('ErrPush',   function(scope, code, msg, data)    push(scope, code, msg, data) end)
+exports('ErrPush',   function(scope, code, msg, data, cid)    push(scope, code, msg, data, cid) end)
+exports('ErrNewCid', function() return newCid() end)
 exports('ErrList',   function(n)                         return list(n) end)
 exports('ErrCounts', function()                          return countsCopy() end)

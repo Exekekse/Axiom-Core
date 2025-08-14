@@ -4,8 +4,21 @@ local RES = GetCurrentResourceName()
 local ax  = exports[RES]
 local cfg = Axiom.config or {}
 local cache = Axiom.cache or {}
-local err = Axiom.err or { ok=function(d) return {ok=true,code=nil,data=d} end, fail=function(c,m,d) return {ok=false,code=c,msg=m,data=d} end }
+local err = Axiom.err or {
+  ok   = function(d) return { ok = true, data = d } end,
+  fail = function(c,m,d) return { ok = false, error = { code = c, message = m, details = d } } end,
+}
 local allowedRoles = (cfg.roles and cfg.roles.allow) or {}
+local flags = Axiom.flags or {}
+
+local function selectUid(kind, val)
+  if flags.has_ident_table then
+    return ax:DbSingle('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1', { kind, val })
+  elseif flags.has_license_column then
+    if kind ~= 'license' then return nil end
+    return ax:DbSingle('SELECT uid FROM ax_players WHERE license=? LIMIT 1', { val })
+  end
+end
 
 local function roleAllowed(role)
   for _, r in ipairs(allowedRoles) do
@@ -19,7 +32,12 @@ local PREFIX = {
   steam='steam:', fivem='fivem:', discord='discord:',
   xbl='xbl:', live='live:', ip='ip:',
 }
-local preferred = (cfg.identifiers and cfg.identifiers.preferred) or { 'license' }
+
+local idcfg = cfg.identifiers or {}
+local primary   = idcfg.primary or 'license'
+local secondary = idcfg.secondary or {}
+local order = { primary }
+for _,k in ipairs(secondary) do order[#order+1] = k end
 
 local function pickIdentifier(src)
   if not src or src == 0 then return nil end
@@ -28,7 +46,7 @@ local function pickIdentifier(src)
     local id = GetPlayerIdentifier(src, i)
     if id then for kind,pfx in pairs(PREFIX) do if id:sub(1,#pfx)==pfx then found[kind]=id end end end
   end
-  for _,kind in ipairs(preferred) do
+  for _,kind in ipairs(order) do
     local id = found[kind]
     if id then
       local val = id:sub(#(PREFIX[kind])+1)
@@ -53,7 +71,7 @@ end
 
 AddEventHandler('playerJoining', function()
   local src=source; local kind,val=pickIdentifier(src); if not kind then return end
-  local row = ax:DbSingle('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1', { kind, val })
+  local row = selectUid(kind, val)
   setMap(src, row and row.uid or nil)
 end)
 AddEventHandler('playerDropped', function()
@@ -72,7 +90,7 @@ AddEventHandler('onResourceStart', function(res)
     local src = tonumber(sid)
     local kind, val = pickIdentifier(src)
     if kind then
-      local row = ax:DbSingle('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1', {kind, val})
+      local row = selectUid(kind, val)
       local uid = row and row.uid
       if uid then
         setMap(src, uid)
@@ -157,7 +175,7 @@ exports('GetUid', function(src)
   if not uid and cache.get then uid = cache.get('uid:'..tostring(src)) end
   if uid then return uid end
   local kind,val=pickIdentifier(src); if not kind then return nil end
-  local row=ax:DbSingle('SELECT uid FROM ax_players WHERE id_kind=? AND id_value=? LIMIT 1',{kind,val}); uid=row and row.uid or nil;
+  local row=selectUid(kind, val); uid=row and row.uid or nil;
   setMap(src,uid); return uid
 end)
 exports('GetSrc', function(uid) return srcByUid[uid] end)
